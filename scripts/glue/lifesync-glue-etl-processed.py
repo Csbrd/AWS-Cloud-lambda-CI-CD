@@ -97,12 +97,13 @@ CONFIGS = {
     },
     "healthcare": {
         "pk_cols":   ["hc_id"],
-        "keep_cols": ["hc_id", "global_id", "bmi", "health_score"],
+        "keep_cols": ["hc_id", "global_id", "diet_score", "sleep_score", "calories"],
         "schema": [
             ("hc_id",       StringType()),
             ("global_id",   StringType()),
-            ("bmi",         DoubleType()),
-            ("health_score", LongType()),
+            ("diet_score",  LongType()),
+            ("sleep_score", LongType()),
+            ("calories",    LongType()),
         ],
     },
     "hospital": {
