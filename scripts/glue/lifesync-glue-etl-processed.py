@@ -82,17 +82,17 @@ CONFIGS = {
         ],
     },
     "online_insurance": {
-        "pk_cols":     ["online_insurance_id"],
+        "pk_cols":     ["iin_id"],
         "rename_cols": {
             "premium_quote": "premium_amount",
             "event_dt":      "transaction_date",
         },
-        "keep_cols": ["online_insurance_id", "global_id", "premium_amount", "transaction_date"],
+        "keep_cols": ["iin_id", "global_id", "premium_amount", "transaction_date"],
         "schema": [
-            ("online_insurance_id", StringType()),
-            ("global_id",           StringType()),
-            ("premium_quote",       LongType()),
-            ("event_dt",            DateType()),
+            ("iin_id",        StringType()),
+            ("global_id",     StringType()),
+            ("premium_quote", LongType()),
+            ("event_dt",      DateType()),
         ],
     },
     "healthcare": {
