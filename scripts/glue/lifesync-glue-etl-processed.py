@@ -164,9 +164,14 @@ s3_client = boto3.client("s3")
 
 # ── 1. S3 Raw JSON 읽기 ────────────────────────────────────────────────────────
 # lifesync-identity-enricher Lambda가 global_id 매핑 후 원본 경로에 덮어쓰기 완료
+# wearable은 dt={date}/hr={hr}/batch/ 구조 → recurse=True 로 전체 탐색
+_raw_conn_opts = {"paths": [f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"]}
+if SOURCE == "wearable":
+    _raw_conn_opts["recurse"] = True
+
 raw_df = glueContext.create_dynamic_frame.from_options(
     connection_type="s3",
-    connection_options={"paths": [f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"]},
+    connection_options=_raw_conn_opts,
     format="json",
     transformation_ctx=f"{SOURCE}_raw_src",
 ).toDF()
