@@ -125,15 +125,14 @@ CONFIGS = {
     "wearable": {
         "pk_cols":   ["global_id", "record_date"],
         "keep_cols": ["global_id", "heart_rate", "steps",
-                      "sleep_hours", "stress_score", "wellness_score", "record_date"],
+                      "stress_score", "spo2_pct", "record_date"],
         "schema": [
-            ("global_id",      StringType()),
-            ("heart_rate",     LongType()),
-            ("steps",          LongType()),
-            ("sleep_hours",    DoubleType()),
-            ("stress_score",   LongType()),
-            ("wellness_score", LongType()),
-            ("record_date",    DateType()),
+            ("global_id",    StringType()),
+            ("heart_rate",   LongType()),
+            ("steps",        LongType()),
+            ("stress_score", LongType()),
+            ("spo2_pct",     LongType()),
+            ("record_date",  DateType()),
         ],
     },
 }
@@ -181,6 +180,17 @@ raw_df = glueContext.create_dynamic_frame.from_options(
 # 래핑된 JSON 포맷 처리 {"source":..., "records": [...]}
 if "records" in raw_df.columns:
     raw_df = raw_df.select(F.explode("records").alias("rec")).select("rec.*")
+
+# wearable: payload 중첩 구조 펼치기 + event_time → record_date
+if SOURCE == "wearable" and "payload" in raw_df.columns:
+    raw_df = raw_df.select(
+        F.col("global_id"),
+        F.to_date(F.col("event_time")).alias("record_date"),
+        F.col("payload.heart_rate").alias("heart_rate"),
+        F.col("payload.steps").alias("steps"),
+        F.col("payload.stress_score").alias("stress_score"),
+        F.col("payload.spo2_pct").alias("spo2_pct"),
+    )
 
 # ── 2. consent 스냅샷 읽기 + 동의 고객 필터링 ────────────────────────────────
 _consent_schema = StructType([
