@@ -107,19 +107,13 @@ CONFIGS = {
         ],
     },
     "hospital": {
-        "pk_cols":     ["hos_id", "visit_date"],
-        "rename_cols": {
-            "cost":     "treatment_cost",
-            "visit_dt": "visit_date",
-        },
-        "keep_cols":   ["hos_id", "global_id", "visit_date",
-                        "diagnosis_code", "treatment_cost"],
+        "pk_cols":   ["hospital_id", "visit_id"],
+        "keep_cols": ["hospital_id", "global_id", "visit_id", "dept"],
         "schema": [
-            ("hos_id",         StringType()),
-            ("global_id",      StringType()),
-            ("visit_dt",       DateType()),
-            ("diagnosis_code", StringType()),
-            ("cost",           LongType()),
+            ("hospital_id", StringType()),
+            ("global_id",   StringType()),
+            ("visit_id",    StringType()),
+            ("dept",        StringType()),
         ],
     },
     "wearable": {
