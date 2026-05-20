@@ -51,86 +51,83 @@ CONFIGS = {
         ],
     },
     "securities": {
-        "pk_cols":     ["securities_id", "transaction_date"],
+        "pk_cols":     ["sec_id", "transaction_date"],
         "rename_cols": {
-            "price":      "invest_amount",
-            "symbol":     "stock_code",
-            "trade_type": "product_type",
-            "trade_dt":   "transaction_date",
+            "trade_amount": "invest_amount",
+            "trade_type":   "product_type",
+            "trade_dt":     "transaction_date",
         },
-        "keep_cols":   ["securities_id", "global_id", "invest_amount",
+        "keep_cols":   ["sec_id", "global_id", "invest_amount",
                         "stock_code", "product_type", "transaction_date"],
         "schema": [
-            ("securities_id", StringType()),
-            ("global_id",     StringType()),
-            ("price",         LongType()),
-            ("symbol",        StringType()),
-            ("trade_type",    StringType()),
-            ("trade_dt",      DateType()),
+            ("sec_id",       StringType()),
+            ("global_id",    StringType()),
+            ("trade_amount", LongType()),
+            ("stock_code",   StringType()),
+            ("trade_type",   StringType()),
+            ("trade_dt",     DateType()),
         ],
     },
     "insurance": {
-        "pk_cols":   ["insurance_id"],
-        "keep_cols": ["insurance_id", "global_id", "premium_amount", "payment_cycle"],
+        "pk_cols":     ["ins_id"],
+        "rename_cols": {
+            "amount": "premium_amount",
+        },
+        "keep_cols": ["ins_id", "global_id", "premium_amount", "event_dt"],
         "schema": [
-            ("insurance_id",   StringType()),
+            ("ins_id",         StringType()),
             ("global_id",      StringType()),
-            ("premium_amount", LongType()),
-            ("payment_cycle",  StringType()),
+            ("amount",         LongType()),
+            ("event_dt",       StringType()),
         ],
     },
     "online_insurance": {
-        "pk_cols":     ["online_insurance_id"],
+        "pk_cols":     ["iin_id"],
         "rename_cols": {
-            "premium_quote": "premium_amount",
-            "event_dt":      "transaction_date",
+            "amount":   "premium_amount",
+            "event_dt": "transaction_date",
         },
-        "keep_cols": ["online_insurance_id", "global_id", "premium_amount", "transaction_date"],
+        "keep_cols": ["iin_id", "global_id", "premium_amount", "transaction_date"],
         "schema": [
-            ("online_insurance_id", StringType()),
-            ("global_id",           StringType()),
-            ("premium_quote",       LongType()),
-            ("event_dt",            DateType()),
+            ("iin_id",    StringType()),
+            ("global_id", StringType()),
+            ("amount",    LongType()),
+            ("event_dt",  DateType()),
         ],
     },
     "healthcare": {
-        "pk_cols":   ["healthcare_id"],
-        "keep_cols": ["healthcare_id", "global_id", "bmi", "health_score"],
+        "pk_cols":   ["hc_id"],
+        "keep_cols": ["hc_id", "global_id", "diet_score", "sleep_score", "calories", "bmi"],
         "schema": [
-            ("healthcare_id", StringType()),
-            ("global_id",     StringType()),
-            ("bmi",           DoubleType()),
-            ("health_score",  LongType()),
+            ("hc_id",       StringType()),
+            ("global_id",   StringType()),
+            ("diet_score",  LongType()),
+            ("sleep_score", LongType()),
+            ("calories",    LongType()),
+            ("bmi",         DoubleType()),
         ],
     },
     "hospital": {
-        "pk_cols":     ["hospital_id", "visit_date"],
-        "rename_cols": {
-            "cost":     "treatment_cost",
-            "visit_dt": "visit_date",
-        },
-        "keep_cols":   ["hospital_id", "global_id", "visit_date",
-                        "diagnosis_code", "treatment_cost"],
+        "pk_cols":   ["hospital_id", "visit_id"],
+        "keep_cols": ["hospital_id", "global_id", "visit_id", "dept"],
         "schema": [
-            ("hospital_id",    StringType()),
-            ("global_id",      StringType()),
-            ("visit_dt",       DateType()),
-            ("diagnosis_code", StringType()),
-            ("cost",           LongType()),
+            ("hospital_id", StringType()),
+            ("global_id",   StringType()),
+            ("visit_id",    StringType()),
+            ("dept",        StringType()),
         ],
     },
     "wearable": {
         "pk_cols":   ["global_id", "record_date"],
         "keep_cols": ["global_id", "heart_rate", "steps",
-                      "sleep_hours", "stress_score", "wellness_score", "record_date"],
+                      "stress_score", "spo2_pct", "record_date"],
         "schema": [
-            ("global_id",      StringType()),
-            ("heart_rate",     LongType()),
-            ("steps",          LongType()),
-            ("sleep_hours",    DoubleType()),
-            ("stress_score",   LongType()),
-            ("wellness_score", LongType()),
-            ("record_date",    DateType()),
+            ("global_id",    StringType()),
+            ("heart_rate",   LongType()),
+            ("steps",        LongType()),
+            ("stress_score", LongType()),
+            ("spo2_pct",     LongType()),
+            ("record_date",  DateType()),
         ],
     },
 }
@@ -168,9 +165,14 @@ s3_client = boto3.client("s3")
 
 # ── 1. S3 Raw JSON 읽기 ────────────────────────────────────────────────────────
 # lifesync-identity-enricher Lambda가 global_id 매핑 후 원본 경로에 덮어쓰기 완료
+# wearable은 dt={date}/hr={hr}/batch/ 구조 → recurse=True 로 전체 탐색
+_raw_conn_opts = {"paths": [f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"]}
+if SOURCE == "wearable":
+    _raw_conn_opts["recurse"] = True
+
 raw_df = glueContext.create_dynamic_frame.from_options(
     connection_type="s3",
-    connection_options={"paths": [f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"]},
+    connection_options=_raw_conn_opts,
     format="json",
     transformation_ctx=f"{SOURCE}_raw_src",
 ).toDF()
@@ -178,6 +180,17 @@ raw_df = glueContext.create_dynamic_frame.from_options(
 # 래핑된 JSON 포맷 처리 {"source":..., "records": [...]}
 if "records" in raw_df.columns:
     raw_df = raw_df.select(F.explode("records").alias("rec")).select("rec.*")
+
+# wearable: payload 중첩 구조 펼치기 + event_time → record_date
+if SOURCE == "wearable" and "payload" in raw_df.columns:
+    raw_df = raw_df.select(
+        F.col("global_id"),
+        F.to_date(F.col("event_time")).alias("record_date"),
+        F.col("payload.heart_rate").alias("heart_rate"),
+        F.col("payload.steps").alias("steps"),
+        F.col("payload.stress_score").alias("stress_score"),
+        F.col("payload.spo2_pct").alias("spo2_pct"),
+    )
 
 # ── 2. consent 스냅샷 읽기 + 동의 고객 필터링 ────────────────────────────────
 _consent_schema = StructType([
@@ -221,6 +234,7 @@ deduped_df = selected_df.dropDuplicates(cfg["pk_cols"])
 # EMR이 읽는 경로: s3://lifesync-processed/{source}/dt={date_str}/
 deduped_df = deduped_df.withColumn("dt", F.lit(date_str))
 
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 deduped_df.write \
     .mode("overwrite") \
     .partitionBy("dt") \
@@ -233,10 +247,10 @@ SUBSIDIARIES = [
     "online_insurance", "healthcare", "hospital", "wearable",
 ]
 
-EMR_APP_ID   = os.environ.get("EMR_APP_ID", "")
-EMR_ROLE_ARN = os.environ.get("EMR_ROLE_ARN", "")
-S3_SCRIPTS   = os.environ.get("S3_SCRIPT_BASE", "s3://lifesync-script-bucket/emr")
-S3_CURATED   = os.environ.get("S3_CURATED_BUCKET", "lifesync-curated")
+EMR_APP_ID   = os.environ.get("EMR_APP_ID")   or _optional_arg("EMR_APP_ID", "")
+EMR_ROLE_ARN = os.environ.get("EMR_ROLE_ARN") or _optional_arg("EMR_ROLE_ARN", "")
+S3_SCRIPTS   = os.environ.get("S3_SCRIPT_BASE")    or _optional_arg("S3_SCRIPT_BASE",    "s3://lifesync-script-bucket/emr")
+S3_CURATED   = os.environ.get("S3_CURATED_BUCKET") or _optional_arg("S3_CURATED_BUCKET", "lifesync-curated")
 
 # ── 7. 마커 파일 생성 ─────────────────────────────────────────────────────────
 s3_client.put_object(
@@ -263,10 +277,10 @@ if _all_markers_done(date_str):
     emr_jobs = [
         ("customer360",      "customer360.py"),
         ("score_mart",       "score_mart.py"),
-        ("ai_feature_table", "ai_feature_table.py"),
         ("vip_mart",         "vip_mart.py"),
         ("recommendation",   "recommendation.py"),
         ("health_mart",      "health_mart.py"),
+        ("ai_feature_table", "ai_feature_table.py"),
     ]
 
     TERMINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
@@ -289,7 +303,7 @@ if _all_markers_done(date_str):
             configurationOverrides={
                 "monitoringConfiguration": {
                     "s3MonitoringConfiguration": {
-                        "logUri": f"s3://{S3_CURATED}/emr-logs/"
+                        "logUri": "s3://lifesync-script-bucket/emr-logs/"
                     }
                 }
             },

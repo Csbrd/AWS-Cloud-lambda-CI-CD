@@ -6,6 +6,11 @@ from pyspark.sql.functions import col, lit, when, least, greatest
 
 BATCH_DATE = os.environ.get("BATCH_DATE")
 if not BATCH_DATE:
+    for i, arg in enumerate(sys.argv):
+        if arg == "--batch-date" and i + 1 < len(sys.argv):
+            BATCH_DATE = sys.argv[i + 1]
+            break
+if not BATCH_DATE:
     print("ERROR: BATCH_DATE environment variable is required (format: YYYYMMDD)")
     sys.exit(1)
 
@@ -57,8 +62,11 @@ df = df.withColumn("financial_score",
     col("balance_score") + col("card_score") + col("invest_score"))
 
 # ── health_sub_score (max 25) ─────────────────────────────────────────────────
-# steps_score (max 10): wearable_flag proxy — 실 파이프라인에서는 avg_steps 사용
-steps_s = (when(col("wearable_flag") == "Y", lit(8))
+# steps_score (max 10): avg_steps 구간별 점수
+steps_s = (when(col("avg_steps") >= 12000, lit(10))
+           .when(col("avg_steps") >= 10000, lit(8))
+           .when(col("avg_steps") >= 7000,  lit(6))
+           .when(col("avg_steps") >= 5000,  lit(3))
            .otherwise(lit(1)))
 df = df.withColumn("steps_score", steps_s.cast("double"))
 
@@ -70,8 +78,16 @@ wellness_s = (when(col("health_score") >= 90, lit(10))
               .otherwise(lit(1)))
 df = df.withColumn("wellness_score", wellness_s.cast("double"))
 
-# stress_sleep_score (max 5): wearable 데이터 없어 중간값 기본 적용
-df = df.withColumn("stress_sleep_score", lit(3.0))
+# stress_sleep_score (max 5): avg_stress(wearable) + sleep_score(healthcare) 조합
+# 스트레스 낮음(<=30) + 수면 양호(>=70) → 5
+# 스트레스 높음(>60)  + 수면 낮음(<40)  → 1
+# 그 외 (보통)                           → 3
+stress_sleep_s = (
+    when((col("avg_stress") <= 30) & (col("sleep_score") >= 70), lit(5))
+    .when((col("avg_stress") > 60)  & (col("sleep_score") < 40),  lit(1))
+    .otherwise(lit(3))
+)
+df = df.withColumn("stress_sleep_score", stress_sleep_s.cast("double"))
 
 df = df.withColumn("health_sub_score",
     col("steps_score") + col("wellness_score") + col("stress_sleep_score"))
@@ -94,9 +110,11 @@ affiliate_s = (when(col("affiliate_cnt") >= 5, lit(10))
                .otherwise(lit(2)))
 df = df.withColumn("affiliate_score", affiliate_s.cast("double"))
 
-# consent_score: customer360에 consent_ratio 없어 0 적용
-# 실 파이프라인에서는 On-Prem MySQL consent 테이블 기반 consent_ratio 사용
-df = df.withColumn("consent_score", lit(0.0))
+# consent_score (max 5): consent_ratio from S3 consent snapshot
+consent_s = (when(col("consent_ratio") >= 0.8, lit(5))
+             .when(col("consent_ratio") >= 0.5, lit(3))
+             .otherwise(lit(0)))
+df = df.withColumn("consent_score", consent_s.cast("double"))
 
 df = df.withColumn("relationship_score",
     col("affiliate_score") + col("consent_score"))
@@ -179,12 +197,13 @@ score_mart = df.select(
     col("churn_score"),
     col("customer_grade"),
     lit(date_formatted).alias("score_dt"),
-    col("dt"),
+    lit(date_formatted).alias("dt"),
 )
 
-output_path = f"s3://{S3_CURATED_BUCKET}/score_mart/dt={date_formatted}/"
+output_path = f"s3://{S3_CURATED_BUCKET}/score_mart/"
 print(f"[score_mart] Writing output to {output_path}")
 
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 score_mart.write \
     .mode("overwrite") \
     .partitionBy("dt") \
