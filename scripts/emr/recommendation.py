@@ -8,6 +8,11 @@ from pyspark.sql.window import Window
 
 BATCH_DATE = os.environ.get("BATCH_DATE")
 if not BATCH_DATE:
+    for i, arg in enumerate(sys.argv):
+        if arg == "--batch-date" and i + 1 < len(sys.argv):
+            BATCH_DATE = sys.argv[i + 1]
+            break
+if not BATCH_DATE:
     print("ERROR: BATCH_DATE environment variable is required (format: YYYYMMDD)")
     sys.exit(1)
 
