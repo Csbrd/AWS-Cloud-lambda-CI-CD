@@ -29,10 +29,9 @@ spark.sparkContext.setLogLevel("WARN")
 
 print(f"[recommendation] Starting job for BATCH_DATE={BATCH_DATE}, date_formatted={date_formatted}")
 
-# ── 데이터 읽기 ───────────────────────────────────────────────────────────────
+# ── 데이터 읽기 (customer360 + score_mart만 사용, health_mart 의존성 없음) ────
 customer360_path = f"s3://{S3_CURATED_BUCKET}/customer_360_profile/dt={date_formatted}/"
 score_mart_path  = f"s3://{S3_CURATED_BUCKET}/score_mart/dt={date_formatted}/"
-health_mart_path = f"s3://{S3_CURATED_BUCKET}/health_mart/dt={date_formatted}/"
 
 print(f"[recommendation] Reading customer_360_profile from {customer360_path}")
 df_c360 = spark.read.parquet(customer360_path).select(
@@ -42,6 +41,8 @@ df_c360 = spark.read.parquet(customer360_path).select(
     "card_total_spend", "invest_product_count",
     "bank_tx_count", "card_tx_count",
     "insurance_count", "online_insurance_count",
+    "hospital_visit_count",
+    "avg_stress",
     "wearable_flag",
 )
 
@@ -50,16 +51,9 @@ df_score = spark.read.parquet(score_mart_path).select(
     "global_id", "customer_grade", "pb_score", "churn_score", "health_score",
 )
 
-print(f"[recommendation] Reading health_mart from {health_mart_path}")
-df_hmart = spark.read.parquet(health_mart_path).select(
-    "global_id", "health_risk", "hospital_visit_cnt", "stress",
-)
-
 # ── 조인 및 fillna ────────────────────────────────────────────────────────────
 print("[recommendation] Joining datasets")
-df = df_c360 \
-    .join(df_score, on="global_id", how="left") \
-    .join(df_hmart,  on="global_id", how="left")
+df = df_c360.join(df_score, on="global_id", how="left")
 
 df = df.fillna({
     "latest_balance": 0.0, "invest_total": 0.0,
@@ -67,11 +61,14 @@ df = df.fillna({
     "card_total_spend": 0.0, "invest_product_count": 0,
     "bank_tx_count": 0, "card_tx_count": 0,
     "insurance_count": 0, "online_insurance_count": 0,
+    "hospital_visit_count": 0, "avg_stress": 40.0,
     "wearable_flag": "N",
     "customer_grade": "CARE", "pb_score": 10.0,
     "churn_score": 0.0, "health_score": 50.0,
-    "health_risk": 50.0, "hospital_visit_cnt": 0, "stress": 40.0,
 })
+
+# health_risk: health_mart 없이 score_mart의 health_score에서 파생
+df = df.withColumn("health_risk", (lit(100.0) - col("health_score")))
 
 # ── 공통 지표 계산 ─────────────────────────────────────────────────────────────
 df = df.withColumn("premium_total",
@@ -152,8 +149,8 @@ df = df.withColumn("card_product_score",
 # HEALTH_CHECKUP: 건강위험도 + 병원방문 + 스트레스 + 웨어러블 보유
 df = df.withColumn("health_product_score",
     when(col("health_risk") >= 70, lit(40.0)).otherwise(lit(0.0))
-    + when(col("hospital_visit_cnt") >= 3, lit(20.0)).otherwise(lit(0.0))
-    + when(col("stress") >= 60, lit(20.0)).otherwise(lit(0.0))
+    + when(col("hospital_visit_count") >= 3, lit(20.0)).otherwise(lit(0.0))
+    + when(col("avg_stress") >= 60, lit(20.0)).otherwise(lit(0.0))
     + when(col("wearable_flag") == "Y", lit(10.0)).otherwise(lit(0.0))
 )
 
@@ -164,7 +161,7 @@ df = df.withColumn("ins_product_score",
         (col("insurance_premium") == 0) & (col("online_insurance_premium") == 0),
         lit(40.0)
     ).otherwise(lit(0.0))
-    + when(col("hospital_visit_cnt") > 0, lit(20.0)).otherwise(lit(0.0))
+    + when(col("hospital_visit_count") > 0, lit(20.0)).otherwise(lit(0.0))
     + when(col("customer_grade").isin("VIP", "GOLD"), lit(10.0)).otherwise(lit(0.0))
 )
 
