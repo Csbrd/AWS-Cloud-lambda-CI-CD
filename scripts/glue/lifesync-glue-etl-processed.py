@@ -247,10 +247,10 @@ SUBSIDIARIES = [
     "online_insurance", "healthcare", "hospital", "wearable",
 ]
 
-EMR_APP_ID   = os.environ.get("EMR_APP_ID", "")
-EMR_ROLE_ARN = os.environ.get("EMR_ROLE_ARN", "")
-S3_SCRIPTS   = os.environ.get("S3_SCRIPT_BASE", "s3://lifesync-script-bucket/emr")
-S3_CURATED   = os.environ.get("S3_CURATED_BUCKET", "lifesync-curated")
+EMR_APP_ID   = os.environ.get("EMR_APP_ID")   or _optional_arg("EMR_APP_ID", "")
+EMR_ROLE_ARN = os.environ.get("EMR_ROLE_ARN") or _optional_arg("EMR_ROLE_ARN", "")
+S3_SCRIPTS   = os.environ.get("S3_SCRIPT_BASE")    or _optional_arg("S3_SCRIPT_BASE",    "s3://lifesync-script-bucket/emr")
+S3_CURATED   = os.environ.get("S3_CURATED_BUCKET") or _optional_arg("S3_CURATED_BUCKET", "lifesync-curated")
 
 # ── 7. 마커 파일 생성 ─────────────────────────────────────────────────────────
 s3_client.put_object(
