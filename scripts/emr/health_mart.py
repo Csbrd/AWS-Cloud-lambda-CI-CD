@@ -210,9 +210,10 @@ health_mart = df.select(
     col("dt"),
 )
 
-output_path = f"s3://{S3_CURATED_BUCKET}/health_mart/dt={date_formatted}/"
+output_path = f"s3://{S3_CURATED_BUCKET}/health_mart/"
 print(f"[health_mart] Writing output to {output_path}")
 
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 health_mart.write \
     .mode("overwrite") \
     .partitionBy("dt") \

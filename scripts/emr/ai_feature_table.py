@@ -132,9 +132,10 @@ ai_feature = df.select(
     col("dt"),
 )
 
-output_path = f"s3://{S3_CURATED_BUCKET}/ai_feature_table/dt={date_formatted}/"
+output_path = f"s3://{S3_CURATED_BUCKET}/ai_feature_table/"
 print(f"[ai_feature_table] Writing to {output_path}")
 
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 ai_feature.write \
     .mode("overwrite") \
     .partitionBy("dt") \

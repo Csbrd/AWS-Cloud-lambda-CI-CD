@@ -139,9 +139,10 @@ recommendation = candidates.filter(col("rec_rank") <= 3).select(
     lit(date_formatted).alias("dt"),
 )
 
-output_path = f"s3://{S3_CURATED_BUCKET}/recommendation_mart/dt={date_formatted}/"
+output_path = f"s3://{S3_CURATED_BUCKET}/recommendation_mart/"
 print(f"[recommendation] Writing output to {output_path}")
 
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 recommendation.write \
     .mode("overwrite") \
     .partitionBy("dt") \

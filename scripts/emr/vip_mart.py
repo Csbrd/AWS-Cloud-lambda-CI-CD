@@ -90,9 +90,10 @@ vip_mart = vip_df.select(
     col("dt"),
 )
 
-output_path = f"s3://{S3_CURATED_BUCKET}/vip_mart/dt={date_formatted}/"
+output_path = f"s3://{S3_CURATED_BUCKET}/vip_mart/"
 print(f"[vip_mart] Writing output to {output_path}")
 
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 vip_mart.write \
     .mode("overwrite") \
     .partitionBy("dt") \
