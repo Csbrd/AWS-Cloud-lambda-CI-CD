@@ -30,7 +30,7 @@ print(f"[ai_feature_table] BATCH_DATE={BATCH_DATE}")
 df_c360    = spark.read.parquet(f"s3://{S3_CURATED_BUCKET}/customer_360_profile/dt={date_formatted}/")
 df_score   = spark.read.parquet(f"s3://{S3_CURATED_BUCKET}/score_mart/dt={date_formatted}/")
 df_hmart   = spark.read.parquet(f"s3://{S3_CURATED_BUCKET}/health_mart/dt={date_formatted}/") \
-                   .select("global_id", "avg_hr", "avg_steps", "stress")
+                   .select("global_id", "avg_hr", "stress")
 
 df = df_c360 \
     .join(df_score.select("global_id", "lifesync_score", "customer_grade"),
