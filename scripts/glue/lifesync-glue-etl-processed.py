@@ -302,7 +302,7 @@ if _all_markers_done(date_str):
             configurationOverrides={
                 "monitoringConfiguration": {
                     "s3MonitoringConfiguration": {
-                        "logUri": f"s3://{S3_CURATED}/emr-logs/"
+                        "logUri": "s3://lifesync-script-bucket/emr-logs/"
                     }
                 }
             },
