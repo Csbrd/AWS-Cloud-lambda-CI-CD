@@ -197,7 +197,7 @@ score_mart = df.select(
     col("churn_score"),
     col("customer_grade"),
     lit(date_formatted).alias("score_dt"),
-    col("dt"),
+    lit(date_formatted).alias("dt"),
 )
 
 output_path = f"s3://{S3_CURATED_BUCKET}/score_mart/"
