@@ -39,7 +39,6 @@ df_c360 = spark.read.parquet(customer360_path).select(
     "bank_tx_count", "card_tx_count",
     "insurance_count", "online_insurance_count", "hospital_visit_count",
     "avg_steps",
-    "dt",
 )
 
 print(f"[vip_mart] Reading score_mart from {score_mart_path}")
@@ -230,7 +229,7 @@ vip_mart = df.select(
     col("health_score"),
     col("pb_score"),
     col("churn_score"),
-    col("dt"),
+    lit(date_formatted).alias("dt"),
 )
 
 output_path = f"s3://{S3_CURATED_BUCKET}/vip_mart/"
