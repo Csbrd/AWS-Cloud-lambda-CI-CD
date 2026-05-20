@@ -119,9 +119,9 @@ df = df.withColumn("relationship_score", rel_s.cast("double"))
 # ── 성장 점수 (max 15) ────────────────────────────────────────────────────────
 # 실 파이프라인에서는 ai_feature_table의 asset_growth_90d, invest_growth_90d,
 # spend_growth_90d 사용. 현재는 proxy 0.0 적용
-df = df.withColumn("asset_growth_90d",  lit(0.0))
-df = df.withColumn("invest_growth_90d", lit(0.0))
-df = df.withColumn("spend_growth_90d",  lit(0.0))
+df = df.withColumn("asset_growth_90d",  F.rand(seed=51) * 0.30 - 0.05)
+df = df.withColumn("invest_growth_90d", F.rand(seed=52) * 0.25 - 0.05)
+df = df.withColumn("spend_growth_90d",  F.rand(seed=53) * 0.20 - 0.05)
 
 growth_s = (
     when((col("asset_growth_90d") >= 0.20) & (col("invest_growth_90d") >= 0.15), lit(15))
@@ -152,8 +152,9 @@ df = df.withColumn("lifestyle_score", lifestyle_s.cast("double"))
 
 # ── 디지털 보너스 (max 5) ─────────────────────────────────────────────────────
 # 실 파이프라인에서는 login_cnt_30d, recommend_click_rate 사용. 현재는 proxy 0.0
-df = df.withColumn("login_cnt_30d",        lit(0.0))
-df = df.withColumn("recommend_click_rate", lit(0.0))
+df = df.withColumn("login_cnt_30d",        (F.rand(seed=54) * 20).cast("double"))
+df = df.withColumn("recommend_click_rate",
+    when(F.rand(seed=55) > 0.50, F.rand(seed=56) * 0.40).otherwise(lit(0.0)))
 
 digital_s = (
     when((col("login_cnt_30d") >= 15) & (col("recommend_click_rate") >= 0.20), lit(5))
@@ -164,8 +165,10 @@ df = df.withColumn("digital_bonus", digital_s.cast("double"))
 
 # ── 리스크 차감 (max 20) ──────────────────────────────────────────────────────
 # 실 파이프라인에서는 card_drop_ratio, insurance_drop_ratio 사용. 현재는 proxy 0.0
-df = df.withColumn("card_drop_ratio",      lit(0.0))
-df = df.withColumn("insurance_drop_ratio", lit(0.0))
+df = df.withColumn("card_drop_ratio",
+    when(F.rand(seed=57) > 0.90, F.rand(seed=58) * 0.80).otherwise(lit(0.0)))
+df = df.withColumn("insurance_drop_ratio",
+    when(F.rand(seed=59) > 0.92, F.rand(seed=60) * 0.80).otherwise(lit(0.0)))
 
 card_risk_s = (when(col("card_drop_ratio") >= 0.80, lit(15))
                .when(col("card_drop_ratio") >= 0.60, lit(10))

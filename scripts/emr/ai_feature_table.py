@@ -43,7 +43,7 @@ df = df.fillna({
 
 # ── 금융 Feature ──────────────────────────────────────────────────────────────
 df = df.withColumn("balance_30d_avg",  col("latest_balance"))
-df = df.withColumn("asset_growth_90d", lit(0.0))
+df = df.withColumn("asset_growth_90d", F.rand(seed=11) * 0.30 - 0.05)
 df = df.withColumn("card_spend_30d",   col("card_total_spend"))
 
 total_assets = col("latest_balance") + col("invest_total") + col("insurance_premium") * lit(12.0)
@@ -51,7 +51,8 @@ df = df.withColumn(
     "invest_ratio",
     when(total_assets > 0, col("invest_total") / total_assets).otherwise(lit(0.0))
 )
-df = df.withColumn("etf_ratio",  lit(0.0))
+df = df.withColumn("etf_ratio",
+    when(col("invest_total") > 0, F.rand(seed=12) * 0.40).otherwise(lit(0.0)))
 df = df.withColumn("policy_cnt", (col("insurance_count") + col("online_insurance_count")).cast("double"))
 
 # ── 건강 Feature ──────────────────────────────────────────────────────────────
@@ -60,14 +61,16 @@ df = df.withColumn("avg_hr_30d",     F.coalesce(col("avg_hr").cast("double"),   
 df = df.withColumn("stress_avg_30d", F.coalesce(col("stress").cast("double"),    lit(40.0)))
 df = df.withColumn("hospital_visit_90d", col("hospital_visit_count").cast("double"))
 df = df.withColumn("health_risk_score",  greatest(lit(0.0), lit(100.0) - col("health_score")))
-df = df.withColumn("step_growth_30d",    lit(0.0))
+df = df.withColumn("step_growth_30d",    F.rand(seed=13) * 0.20 - 0.05)
 
 # ── 행동 Feature ──────────────────────────────────────────────────────────────
-df = df.withColumn("login_cnt_30d",        lit(0.0))
-df = df.withColumn("avg_session_min",      lit(0.0))
-df = df.withColumn("push_click_rate",      lit(0.0))
-df = df.withColumn("recommend_click_rate", lit(0.0))
-df = df.withColumn("last_active_days",     lit(0.0))
+df = df.withColumn("login_cnt_30d",        (F.rand(seed=21) * 20).cast("double"))
+df = df.withColumn("avg_session_min",      (F.rand(seed=22) * 30).cast("double"))
+df = df.withColumn("push_click_rate",
+    when(F.rand(seed=23) > 0.30, F.rand(seed=24) * 0.50).otherwise(lit(0.0)))
+df = df.withColumn("recommend_click_rate",
+    when(F.rand(seed=25) > 0.50, F.rand(seed=26) * 0.40).otherwise(lit(0.0)))
+df = df.withColumn("last_active_days",     (F.rand(seed=27) * 45).cast("double"))
 
 # ── 관계 Feature ──────────────────────────────────────────────────────────────
 affiliate_expr = (
@@ -87,15 +90,19 @@ df = df.withColumn(
 )
 
 # ── 성장 Feature ──────────────────────────────────────────────────────────────
-df = df.withColumn("spend_growth_90d",  lit(0.0))
-df = df.withColumn("invest_growth_90d", lit(0.0))
-df = df.withColumn("wellness_growth_30d", lit(0.0))
+df = df.withColumn("spend_growth_90d",    F.rand(seed=31) * 0.20 - 0.05)
+df = df.withColumn("invest_growth_90d",   F.rand(seed=32) * 0.25 - 0.05)
+df = df.withColumn("wellness_growth_30d", F.rand(seed=33) * 0.20 - 0.05)
 
 # ── Risk Feature ──────────────────────────────────────────────────────────────
-df = df.withColumn("inactive_days",    lit(0.0))
-df = df.withColumn("card_drop_ratio",  lit(0.0))
-df = df.withColumn("asset_drop_ratio", lit(0.0))
-df = df.withColumn("complaint_flag",   lit(0.0))
+df = df.withColumn("inactive_days",
+    when(F.rand(seed=41) > 0.85, F.rand(seed=42) * 90).otherwise(lit(0.0)))
+df = df.withColumn("card_drop_ratio",
+    when(F.rand(seed=43) > 0.90, F.rand(seed=44) * 0.80).otherwise(lit(0.0)))
+df = df.withColumn("asset_drop_ratio",
+    when(F.rand(seed=45) > 0.92, F.rand(seed=46) * 0.60).otherwise(lit(0.0)))
+df = df.withColumn("complaint_flag",
+    when(F.rand(seed=47) > 0.97, lit(1.0)).otherwise(lit(0.0)))
 
 # ── Label ─────────────────────────────────────────────────────────────────────
 df = df.withColumn(

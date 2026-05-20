@@ -96,9 +96,11 @@ grade_w = (
 df = df.withColumn("grade_weight", grade_w)
 
 # ── 디지털 반응도 (실 파이프라인: login_cnt_30d, push_click_rate, product_click. 현재 proxy 0.0) ──
-df = df.withColumn("login_cnt_30d",      lit(0.0))
-df = df.withColumn("push_click_rate",    lit(0.0))
-df = df.withColumn("product_click_flag", lit(0.0))
+df = df.withColumn("login_cnt_30d",      (F.rand(seed=61) * 20).cast("double"))
+df = df.withColumn("push_click_rate",
+    when(F.rand(seed=62) > 0.30, F.rand(seed=63) * 0.50).otherwise(lit(0.0)))
+df = df.withColumn("product_click_flag",
+    when(F.rand(seed=64) > 0.60, lit(1.0)).otherwise(lit(0.0)))
 df = df.withColumn("digital_score",
     when(col("login_cnt_30d") >= 15,       lit(10.0)).otherwise(lit(0.0))
     + when(col("push_click_rate") >= 0.30, lit(10.0)).otherwise(lit(0.0))
@@ -106,9 +108,12 @@ df = df.withColumn("digital_score",
 )
 
 # ── 리스크 차감 (실 파이프라인: delinquency, complaint, inactive_days. 현재 proxy 0.0) ──
-df = df.withColumn("delinquency_flag", lit(0.0))
-df = df.withColumn("complaint_flag",   lit(0.0))
-df = df.withColumn("inactive_days",    lit(0.0))
+df = df.withColumn("delinquency_flag",
+    when(F.rand(seed=65) > 0.97, lit(1.0)).otherwise(lit(0.0)))
+df = df.withColumn("complaint_flag",
+    when(F.rand(seed=66) > 0.97, lit(1.0)).otherwise(lit(0.0)))
+df = df.withColumn("inactive_days",
+    when(F.rand(seed=67) > 0.85, F.rand(seed=68) * 90).otherwise(lit(0.0)))
 df = df.withColumn("risk_penalty",
     least(lit(50.0),
         when(col("delinquency_flag") >= 1,  lit(30.0)).otherwise(lit(0.0))
