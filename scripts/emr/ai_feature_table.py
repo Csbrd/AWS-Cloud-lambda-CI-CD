@@ -30,7 +30,7 @@ print(f"[ai_feature_table] BATCH_DATE={BATCH_DATE}")
 df_c360    = spark.read.parquet(f"s3://{S3_CURATED_BUCKET}/customer_360_profile/dt={date_formatted}/")
 df_score   = spark.read.parquet(f"s3://{S3_CURATED_BUCKET}/score_mart/dt={date_formatted}/")
 df_hmart   = spark.read.parquet(f"s3://{S3_CURATED_BUCKET}/health_mart/dt={date_formatted}/") \
-                   .select("global_id", "avg_heart_rate", "avg_steps", "avg_stress", "avg_sleep")
+                   .select("global_id", "avg_hr", "avg_steps", "stress")
 
 df = df_c360 \
     .join(df_score.select("global_id", "lifesync_score", "customer_grade"),
@@ -55,10 +55,9 @@ df = df.withColumn("etf_ratio",  lit(0.0))
 df = df.withColumn("policy_cnt", (col("insurance_count") + col("online_insurance_count")).cast("double"))
 
 # ── 건강 Feature ──────────────────────────────────────────────────────────────
-df = df.withColumn("avg_steps_30d",      F.coalesce(col("avg_steps").cast("double"),  lit(0.0)))
-df = df.withColumn("avg_hr_30d",         F.coalesce(col("avg_heart_rate").cast("double"), lit(0.0)))
-df = df.withColumn("stress_avg_30d",     F.coalesce(col("avg_stress").cast("double"), lit(40.0)))
-df = df.withColumn("avg_sleep_30d",      F.coalesce(col("avg_sleep").cast("double"),  lit(6.5)))
+df = df.withColumn("avg_steps_30d",  F.coalesce(col("avg_steps").cast("double"), lit(0.0)))
+df = df.withColumn("avg_hr_30d",     F.coalesce(col("avg_hr").cast("double"),    lit(0.0)))
+df = df.withColumn("stress_avg_30d", F.coalesce(col("stress").cast("double"),    lit(40.0)))
 df = df.withColumn("hospital_visit_90d", col("hospital_visit_count").cast("double"))
 df = df.withColumn("health_risk_score",  greatest(lit(0.0), lit(100.0) - col("health_score")))
 df = df.withColumn("step_growth_30d",    lit(0.0))
@@ -117,7 +116,7 @@ ai_feature = df.select(
     col("balance_30d_avg"), col("asset_growth_90d"), col("card_spend_30d"),
     col("invest_total"),    col("invest_ratio"),     col("etf_ratio"),     col("policy_cnt"),
     # 건강
-    col("avg_steps_30d"), col("avg_hr_30d"), col("stress_avg_30d"), col("avg_sleep_30d"),
+    col("avg_steps_30d"), col("avg_hr_30d"), col("stress_avg_30d"),
     col("hospital_visit_90d"), col("health_risk_score"), col("step_growth_30d"),
     # 행동
     col("login_cnt_30d"), col("avg_session_min"), col("push_click_rate"),

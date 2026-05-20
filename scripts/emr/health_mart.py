@@ -38,16 +38,15 @@ df_wearable   = read_processed("wearable")
 
 print("[health_mart] Aggregating healthcare data")
 healthcare_agg = df_healthcare.groupBy("global_id").agg(
+    F.avg("diet_score").alias("diet_score"),
+    F.avg("sleep_score").alias("sleep_score"),
+    F.avg("calories").alias("calories"),
     F.avg("bmi").alias("bmi"),
 )
 
 print("[health_mart] Aggregating hospital data")
 hospital_agg = df_hospital.groupBy("global_id").agg(
     F.count("*").alias("hospital_visit_count"),
-    F.sum("treatment_cost").alias("hospital_total_cost"),
-    F.max(
-        when(col("diagnosis_code").isin("E11", "I10"), lit(1)).otherwise(lit(0))
-    ).alias("has_chronic"),
 )
 
 print("[health_mart] Aggregating wearable data")
@@ -55,8 +54,7 @@ wearable_agg = df_wearable.groupBy("global_id").agg(
     F.avg("heart_rate").alias("avg_heart_rate"),
     F.avg("steps").alias("avg_steps"),
     F.avg("stress_score").alias("avg_stress"),
-    F.avg("sleep_hours").alias("avg_sleep"),
-    F.avg("spo2").alias("spo2"),
+    F.avg("spo2_pct").alias("spo2"),
     F.max("record_date").alias("last_sync_date"),
 )
 
@@ -79,12 +77,12 @@ df = df.withColumn("has_healthcare", when(col("bmi").isNotNull(), lit(1)).otherw
 
 df = df.fillna({
     "hospital_visit_count": 0,
-    "hospital_total_cost":  0.0,
-    "has_chronic":          0,
     "avg_heart_rate":       75.0,
     "avg_steps":            5000.0,
     "avg_stress":           40.0,
-    "avg_sleep":            6.5,
+    "diet_score":           50.0,
+    "sleep_score":          50.0,
+    "calories":             0.0,
     "bmi":                  22.0,
     "spo2":                 98.0,
 })
@@ -113,7 +111,10 @@ hr_s  = (when(col("avg_heart_rate") <= 75,  lit(10))
          .when(col("avg_heart_rate") <= 90,  lit(8))
          .when(col("avg_heart_rate") <= 110, lit(5))
          .otherwise(lit(2)))
-spo2_s = lit(8)  # spo2 processed 데이터 미수집 → 95이상 구간 보수적 기본값
+spo2_s = (when(col("spo2") >= 98, lit(10))
+          .when(col("spo2") >= 95, lit(8))
+          .when(col("spo2") >= 90, lit(5))
+          .otherwise(lit(2)))
 bmi_s  = (when((col("bmi") >= 18.5) & (col("bmi") <= 24.9), lit(5))
           .when(col("bmi") <= 29.9, lit(3))
           .otherwise(lit(1)))
@@ -123,9 +124,9 @@ df = df.withColumn("bio_score", hr_s + spo2_s + bmi_s)
 stress_s = (when(col("avg_stress") <= 30, lit(8))
             .when(col("avg_stress") <= 60, lit(5))
             .otherwise(lit(2)))
-sleep_s  = (when((col("avg_sleep") >= 7.0) & (col("avg_sleep") <= 8.0), lit(7))
-            .when(col("avg_sleep") >= 6.0, lit(5))
-            .when(col("avg_sleep") >= 5.0, lit(3))
+sleep_s  = (when(col("sleep_score") >= 80, lit(7))
+            .when(col("sleep_score") >= 60, lit(5))
+            .when(col("sleep_score") >= 40, lit(3))
             .otherwise(lit(1)))
 df = df.withColumn("lifestyle_score", stress_s + sleep_s)
 
@@ -141,13 +142,11 @@ base_risk_expr = least(
     lit(100),
     (col("hospital_visit_count").cast("double") * lit(10.0)).cast("int"),
 )
-eff_risk_expr  = when(col("has_chronic") == 1, greatest(base_risk_expr, lit(80))).otherwise(base_risk_expr)
-disease_base_p = (when(eff_risk_expr >= 80, lit(15))
-                  .when(eff_risk_expr >= 60, lit(10))
-                  .when(eff_risk_expr >= 40, lit(5))
+disease_base_p = (when(base_risk_expr >= 80, lit(15))
+                  .when(base_risk_expr >= 60, lit(10))
+                  .when(base_risk_expr >= 40, lit(5))
                   .otherwise(lit(0)))
-chronic_flag_p = when(col("has_chronic") == 1, lit(5)).otherwise(lit(0))
-df = df.withColumn("disease_penalty", least(lit(15), disease_base_p + chronic_flag_p))
+df = df.withColumn("disease_penalty", least(lit(15), disease_base_p))
 
 # 6) visit_penalty (max 10)
 visit_p = (when(col("hospital_visit_count") >= 6, lit(10))
@@ -190,7 +189,6 @@ df = df.withColumn(
     "next_health_action",
     when(col("health_grade") == "RISK",    lit("EMERGENCY_CARE"))
     .when(col("health_grade") == "WARNING", lit("HEALTH_CHECKUP"))
-    .when(col("has_chronic") == 1,          lit("CHRONIC_MANAGEMENT"))
     .when(col("avg_steps") < 5000,          lit("EXERCISE_PROGRAM"))
     .otherwise(lit("HEALTH_MAINTENANCE"))
 )
@@ -204,7 +202,6 @@ health_mart = df.select(
     col("spo2"),
     col("bmi"),
     col("avg_stress").alias("stress"),
-    col("avg_sleep").alias("sleep_avg"),
     col("hospital_visit_count").alias("hospital_visit_cnt"),
     col("health_risk"),
     col("health_score"),

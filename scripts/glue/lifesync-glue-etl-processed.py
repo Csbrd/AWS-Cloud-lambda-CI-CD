@@ -97,13 +97,14 @@ CONFIGS = {
     },
     "healthcare": {
         "pk_cols":   ["hc_id"],
-        "keep_cols": ["hc_id", "global_id", "diet_score", "sleep_score", "calories"],
+        "keep_cols": ["hc_id", "global_id", "diet_score", "sleep_score", "calories", "bmi"],
         "schema": [
             ("hc_id",       StringType()),
             ("global_id",   StringType()),
             ("diet_score",  LongType()),
             ("sleep_score", LongType()),
             ("calories",    LongType()),
+            ("bmi",         DoubleType()),
         ],
     },
     "hospital": {
@@ -275,10 +276,10 @@ if _all_markers_done(date_str):
     emr_jobs = [
         ("customer360",      "customer360.py"),
         ("score_mart",       "score_mart.py"),
-        ("ai_feature_table", "ai_feature_table.py"),
         ("vip_mart",         "vip_mart.py"),
         ("recommendation",   "recommendation.py"),
         ("health_mart",      "health_mart.py"),
+        ("ai_feature_table", "ai_feature_table.py"),
     ]
 
     TERMINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
