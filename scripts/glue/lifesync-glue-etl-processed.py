@@ -234,6 +234,7 @@ deduped_df = selected_df.dropDuplicates(cfg["pk_cols"])
 # EMR이 읽는 경로: s3://lifesync-processed/{source}/dt={date_str}/
 deduped_df = deduped_df.withColumn("dt", F.lit(date_str))
 
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 deduped_df.write \
     .mode("overwrite") \
     .partitionBy("dt") \
