@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import time
 import boto3
@@ -14,7 +14,6 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import LongType, StringType, DateType, DoubleType, StructType, StructField
 
 # ── 계열사별 설정 ──────────────────────────────────────────────────────────────
-# rename_cols: raw 컬럼명 → EMR 표준 컬럼명 (Glue 출력 시 적용)
 CONFIGS = {
     "bank": {
         "pk_cols":     ["bank_id", "transaction_date"],
@@ -132,18 +131,14 @@ CONFIGS = {
     },
 }
 
+SUBSIDIARIES = list(CONFIGS.keys())
+
 RAW_BUCKET  = "lifesync-raw"
 PROC_BUCKET = "lifesync-processed"
 KST         = timezone(timedelta(hours=9))
 
 # ── Glue Job 초기화 ────────────────────────────────────────────────────────────
-args   = getResolvedOptions(sys.argv, ["JOB_NAME", "source"])
-SOURCE = args["source"]
-
-if SOURCE not in CONFIGS:
-    raise ValueError(f"Unknown source '{SOURCE}'. Valid: {list(CONFIGS.keys())}")
-
-cfg = CONFIGS[SOURCE]
+args = getResolvedOptions(sys.argv, ["JOB_NAME"])
 
 sc          = SparkContext()
 glueContext = GlueContext(sc)
@@ -163,36 +158,12 @@ def _optional_arg(name, default=None):
 date_str  = _optional_arg("date", datetime.now(KST).strftime("%Y-%m-%d"))
 s3_client = boto3.client("s3")
 
-# ── 1. S3 Raw JSON 읽기 ────────────────────────────────────────────────────────
-# lifesync-identity-enricher Lambda가 global_id 매핑 후 원본 경로에 덮어쓰기 완료
-# wearable은 dt={date}/hr={hr}/batch/ 구조 → recurse=True 로 전체 탐색
-_raw_conn_opts = {"paths": [f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"]}
-if SOURCE == "wearable":
-    _raw_conn_opts["recurse"] = True
+EMR_APP_ID   = os.environ.get("EMR_APP_ID")        or _optional_arg("emr_app_id",        "")
+EMR_ROLE_ARN = os.environ.get("EMR_ROLE_ARN")       or _optional_arg("emr_role_arn",       "")
+S3_SCRIPTS   = os.environ.get("S3_SCRIPT_BASE")     or _optional_arg("S3_SCRIPT_BASE",     "s3://lifesync-script-bucket/emr")
+S3_CURATED   = os.environ.get("S3_CURATED_BUCKET")  or _optional_arg("S3_CURATED_BUCKET",  "lifesync-curated")
 
-raw_df = glueContext.create_dynamic_frame.from_options(
-    connection_type="s3",
-    connection_options=_raw_conn_opts,
-    format="json",
-    transformation_ctx=f"{SOURCE}_raw_src",
-).toDF()
-
-# 래핑된 JSON 포맷 처리 {"source":..., "records": [...]}
-if "records" in raw_df.columns:
-    raw_df = raw_df.select(F.explode("records").alias("rec")).select("rec.*")
-
-# wearable: payload 중첩 구조 펼치기 + event_time → record_date
-if SOURCE == "wearable" and "payload" in raw_df.columns:
-    raw_df = raw_df.select(
-        F.col("global_id"),
-        F.to_date(F.col("event_time")).alias("record_date"),
-        F.col("payload.heart_rate").alias("heart_rate"),
-        F.col("payload.steps").alias("steps"),
-        F.col("payload.stress_score").alias("stress_score"),
-        F.col("payload.spo2_pct").alias("spo2_pct"),
-    )
-
-# ── 2. consent 스냅샷 읽기 + 동의 고객 필터링 ────────────────────────────────
+# ── consent 스냅샷 1회 로드 (전 계열사 공통 사용) ─────────────────────────────
 _consent_schema = StructType([
     StructField("global_id",       StringType(), True),
     StructField("domain",          StringType(), True),
@@ -210,125 +181,134 @@ consent_ids = (
          )
          .select("global_id")
          .distinct()
+         .cache()
 )
+print(f"[glue-etl] consent 로드 완료 date={date_str}")
 
-# global_id inner join → 동의 고객만 통과
-filtered_df = raw_df.join(consent_ids, on="global_id", how="inner")
+# ── 8개 계열사 순차 처리 ──────────────────────────────────────────────────────
+for SOURCE in SUBSIDIARIES:
+    cfg = CONFIGS[SOURCE]
+    print(f"[{SOURCE}] 처리 시작")
 
-# ── 3. 스키마 정규화 ───────────────────────────────────────────────────────────
-normalized_df = filtered_df
-for col_name, col_type in cfg["schema"]:
-    normalized_df = normalized_df.withColumn(col_name, F.col(col_name).cast(col_type))
+    # 1. S3 Raw JSON 읽기
+    _raw_conn_opts = {"paths": [f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"]}
+    if SOURCE == "wearable":
+        _raw_conn_opts["recurse"] = True
 
-# ── 3.5 컬럼명 표준화 (raw명 → EMR 표준명) ───────────────────────────────────
-for old_name, new_name in cfg.get("rename_cols", {}).items():
-    normalized_df = normalized_df.withColumnRenamed(old_name, new_name)
+    raw_df = glueContext.create_dynamic_frame.from_options(
+        connection_type="s3",
+        connection_options=_raw_conn_opts,
+        format="json",
+        transformation_ctx=f"{SOURCE}_raw_src",
+    ).toDF()
 
-# ── 4. PII 제거 + 필요 컬럼만 선택 ───────────────────────────────────────────
-selected_df = normalized_df.select(cfg["keep_cols"])
+    # 래핑된 JSON 포맷 처리 {"source":..., "records": [...]}
+    if "records" in raw_df.columns:
+        raw_df = raw_df.select(F.explode("records").alias("rec")).select("rec.*")
 
-# ── 5. 중복 제거 ───────────────────────────────────────────────────────────────
-deduped_df = selected_df.dropDuplicates(cfg["pk_cols"])
+    # wearable: payload 중첩 구조 펼치기 + event_time → record_date
+    if SOURCE == "wearable" and "payload" in raw_df.columns:
+        raw_df = raw_df.select(
+            F.col("global_id"),
+            F.to_date(F.col("event_time")).alias("record_date"),
+            F.col("payload.heart_rate").alias("heart_rate"),
+            F.col("payload.steps").alias("steps"),
+            F.col("payload.stress_score").alias("stress_score"),
+            F.col("payload.spo2_pct").alias("spo2_pct"),
+        )
 
-# ── 6. S3 Processed에 Parquet 저장 (Snappy 압축, dt= 파티션) ──────────────────
-# EMR이 읽는 경로: s3://lifesync-processed/{source}/dt={date_str}/
-deduped_df = deduped_df.withColumn("dt", F.lit(date_str))
+    # 2. 동의 고객 필터링
+    filtered_df = raw_df.join(consent_ids, on="global_id", how="inner")
 
-spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
-deduped_df.write \
-    .mode("overwrite") \
-    .partitionBy("dt") \
-    .option("compression", "snappy") \
-    .parquet(f"s3://{PROC_BUCKET}/{SOURCE}/")
+    # 3. 스키마 정규화
+    normalized_df = filtered_df
+    for col_name, col_type in cfg["schema"]:
+        normalized_df = normalized_df.withColumn(col_name, F.col(col_name).cast(col_type))
 
-# ── 7. 마커 파일 생성 → EMR 트리거 감지용 ────────────────────────────────────
-SUBSIDIARIES = [
-    "bank", "card", "securities", "insurance",
-    "online_insurance", "healthcare", "hospital", "wearable",
+    # 3.5 컬럼명 표준화
+    for old_name, new_name in cfg.get("rename_cols", {}).items():
+        normalized_df = normalized_df.withColumnRenamed(old_name, new_name)
+
+    # 4. PII 제거 + 필요 컬럼 선택
+    selected_df = normalized_df.select(cfg["keep_cols"])
+
+    # 5. 중복 제거
+    deduped_df = selected_df.dropDuplicates(cfg["pk_cols"])
+
+    # 6. S3 Processed Parquet 저장 (Snappy 압축, dt= 파티션)
+    deduped_df = deduped_df.withColumn("dt", F.lit(date_str))
+
+    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+    deduped_df.write \
+        .mode("overwrite") \
+        .partitionBy("dt") \
+        .option("compression", "snappy") \
+        .parquet(f"s3://{PROC_BUCKET}/{SOURCE}/")
+
+    # 7. 마커 파일 생성
+    s3_client.put_object(
+        Bucket=PROC_BUCKET,
+        Key=f"_markers/{date_str}/{SOURCE}.done",
+        Body=b"done",
+    )
+    print(f"[{SOURCE}] 완료 — 마커 생성: _markers/{date_str}/{SOURCE}.done")
+
+# ── EMR 6개 Step 순차 제출 ────────────────────────────────────────────────────
+print("[glue-etl] 전체 계열사 처리 완료 — EMR Job 순차 제출 시작")
+batch_date = date_str.replace("-", "")
+emr = boto3.client("emr-serverless", region_name="ap-northeast-2")
+
+emr_jobs = [
+    ("customer360",      "customer360.py"),
+    ("score_mart",       "score_mart.py"),
+    ("vip_mart",         "vip_mart.py"),
+    ("recommendation",   "recommendation.py"),
+    ("health_mart",      "health_mart.py"),
+    ("ai_feature_table", "ai_feature_table.py"),
 ]
 
-EMR_APP_ID   = os.environ.get("EMR_APP_ID")   or _optional_arg("EMR_APP_ID", "")
-EMR_ROLE_ARN = os.environ.get("EMR_ROLE_ARN") or _optional_arg("EMR_ROLE_ARN", "")
-S3_SCRIPTS   = os.environ.get("S3_SCRIPT_BASE")    or _optional_arg("S3_SCRIPT_BASE",    "s3://lifesync-script-bucket/emr")
-S3_CURATED   = os.environ.get("S3_CURATED_BUCKET") or _optional_arg("S3_CURATED_BUCKET", "lifesync-curated")
+TERMINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
+POLL_INTERVAL   = 30
 
-# ── 7. 마커 파일 생성 ─────────────────────────────────────────────────────────
-s3_client.put_object(
-    Bucket=PROC_BUCKET,
-    Key=f"_markers/{date_str}/{SOURCE}.done",
-    Body=b"done",
-)
-print(f"[{SOURCE}] 마커 파일 생성 완료: _markers/{date_str}/{SOURCE}.done")
+for job_name, script_file in emr_jobs:
+    response = emr.start_job_run(
+        applicationId=EMR_APP_ID,
+        executionRoleArn=EMR_ROLE_ARN,
+        name=f"lifesync-{job_name}-{batch_date}",
+        jobDriver={
+            "sparkSubmit": {
+                "entryPoint": f"{S3_SCRIPTS}/{script_file}",
+                "entryPointArguments": ["--batch-date", batch_date],
+                "sparkSubmitParameters": (
+                    "--conf spark.executor.cores=2 "
+                    "--conf spark.executor.memory=4g"
+                ),
+            }
+        },
+        configurationOverrides={
+            "monitoringConfiguration": {
+                "s3MonitoringConfiguration": {
+                    "logUri": "s3://lifesync-script-bucket/emr-logs/"
+                }
+            }
+        },
+    )
+    job_run_id = response["jobRunId"]
+    print(f"[emr] {job_name} 제출 완료 jobRunId={job_run_id}")
 
-# ── 8. 8개 마커 확인 → 전부 완료 시 EMR 트리거 ───────────────────────────────
-def _all_markers_done(date: str) -> bool:
-    for sub in SUBSIDIARIES:
-        try:
-            s3_client.head_object(Bucket=PROC_BUCKET, Key=f"_markers/{date}/{sub}.done")
-        except s3_client.exceptions.ClientError:
-            return False
-    return True
-
-if _all_markers_done(date_str):
-    print(f"[{SOURCE}] 8개 마커 모두 확인 — EMR Job 순차 제출 시작")
-    batch_date = date_str.replace("-", "")
-    emr = boto3.client("emr-serverless", region_name="ap-northeast-2")
-
-    emr_jobs = [
-        ("customer360",      "customer360.py"),
-        ("score_mart",       "score_mart.py"),
-        ("vip_mart",         "vip_mart.py"),
-        ("recommendation",   "recommendation.py"),
-        ("health_mart",      "health_mart.py"),
-        ("ai_feature_table", "ai_feature_table.py"),
-    ]
-
-    TERMINAL_STATES = {"SUCCESS", "FAILED", "CANCELLED"}
-    POLL_INTERVAL   = 30  # seconds
-
-    for job_name, script_file in emr_jobs:
-        response = emr.start_job_run(
+    while True:
+        status = emr.get_job_run(
             applicationId=EMR_APP_ID,
-            executionRoleArn=EMR_ROLE_ARN,
-            name=f"lifesync-{job_name}-{batch_date}",
-            jobDriver={
-                "sparkSubmit": {
-                    "entryPoint": f"{S3_SCRIPTS}/{script_file}",
-                    "sparkSubmitParameters": (
-                        "--conf spark.executor.cores=2 "
-                        "--conf spark.executor.memory=4g"
-                    ),
-                }
-            },
-            configurationOverrides={
-                "monitoringConfiguration": {
-                    "s3MonitoringConfiguration": {
-                        "logUri": "s3://lifesync-script-bucket/emr-logs/"
-                    }
-                }
-            },
-            executionTimeoutMinutes=60,
-        )
-        job_run_id = response["jobRunId"]
-        print(f"[{SOURCE}] EMR {job_name} 제출 완료 jobRunId={job_run_id}")
+            jobRunId=job_run_id,
+        )["jobRun"]["state"]
 
-        # 완료될 때까지 polling 후 다음 Job 제출
-        import time
-        while True:
-            status = emr.get_job_run(
-                applicationId=EMR_APP_ID,
-                jobRunId=job_run_id,
-            )["jobRun"]["state"]
+        if status in TERMINAL_STATES:
+            print(f"[emr] {job_name} 종료 state={status}")
+            if status != "SUCCESS":
+                raise RuntimeError(f"EMR {job_name} 실패: state={status}")
+            break
 
-            if status in TERMINAL_STATES:
-                print(f"[{SOURCE}] EMR {job_name} 종료 state={status}")
-                if status != "SUCCESS":
-                    raise RuntimeError(f"EMR {job_name} 실패: state={status}")
-                break
-
-            print(f"[{SOURCE}] EMR {job_name} 진행 중 state={status} — {POLL_INTERVAL}초 대기")
-            time.sleep(POLL_INTERVAL)
-else:
-    print(f"[{SOURCE}] 마커 미완료 계열사 있음 — EMR 대기 중")
+        print(f"[emr] {job_name} 진행 중 state={status} — {POLL_INTERVAL}초 대기")
+        time.sleep(POLL_INTERVAL)
 
 job.commit()

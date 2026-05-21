@@ -43,18 +43,24 @@ balance_s = (when(col("latest_balance") >= 50_000_000, lit(15))
 df = df.withColumn("balance_score", balance_s.cast("double"))
 
 # 2) card_score (max 10)
-card_s = (when(col("card_total_spend") >= 5_000_000, lit(10))
-          .when(col("card_total_spend") >= 3_000_000, lit(8))
-          .when(col("card_total_spend") >= 1_500_000, lit(5))
-          .when(col("card_total_spend") >= 500_000,   lit(3))
+# TODO: customer360가 30일 rolling 집계로 전환되면 원래 임계값으로 복원
+# 원래: 500만/300만/150만/50만
+# 현재: 일별 데이터 규모 기준 (÷30 수준)
+card_s = (when(col("card_total_spend") >= 200_000, lit(10))
+          .when(col("card_total_spend") >= 100_000,  lit(8))
+          .when(col("card_total_spend") >= 50_000,   lit(5))
+          .when(col("card_total_spend") >= 20_000,   lit(3))
           .otherwise(lit(1)))
 df = df.withColumn("card_score", card_s.cast("double"))
 
 # 3) invest_score (max 15)
-invest_s = (when(col("invest_total") >= 100_000_000, lit(15))
-            .when(col("invest_total") >= 50_000_000,  lit(12))
-            .when(col("invest_total") >= 30_000_000,  lit(8))
-            .when(col("invest_total") >= 10_000_000,  lit(5))
+# TODO: customer360가 30일 rolling 집계로 전환되면 원래 임계값으로 복원
+# 원래: 1억/5000만/3000만/1000만
+# 현재: 일별 거래액 기준
+invest_s = (when(col("invest_total") >= 3_000_000, lit(15))
+            .when(col("invest_total") >= 1_000_000,  lit(12))
+            .when(col("invest_total") >= 500_000,    lit(8))
+            .when(col("invest_total") >= 100_000,    lit(5))
             .otherwise(lit(1)))
 df = df.withColumn("invest_score", invest_s.cast("double"))
 
