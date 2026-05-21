@@ -202,6 +202,7 @@ health_mart = df.select(
     col("spo2"),
     col("bmi"),
     col("avg_stress").alias("stress"),
+    col("sleep_score").alias("sleep_avg"),
     col("hospital_visit_count").alias("hospital_visit_cnt"),
     col("health_risk"),
     col("health_score"),

@@ -81,7 +81,8 @@ affiliate_expr = (
     when(col("card_tx_count")          > 0, lit(1)).otherwise(lit(0)) +
     when(col("invest_product_count")   > 0, lit(1)).otherwise(lit(0)) +
     when(col("insurance_count")        > 0, lit(1)).otherwise(lit(0)) +
-    when(col("online_insurance_count") > 0, lit(1)).otherwise(lit(0))
+    when(col("online_insurance_count") > 0, lit(1)).otherwise(lit(0)) +
+    when(col("hospital_visit_count")   > 0, lit(1)).otherwise(lit(0))
 )
 df = df.withColumn("affiliate_cnt", affiliate_expr)
 
