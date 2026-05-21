@@ -35,10 +35,11 @@ print("[score_mart] Calculating LifeSync Score components (설계 문서 기준)
 
 # ── financial_score (max 40) ───────────────────────────────────────────────────
 # 1) balance_score (max 15)
-balance_s = (when(col("latest_balance") >= 50_000_000, lit(15))
-             .when(col("latest_balance") >= 30_000_000, lit(12))
-             .when(col("latest_balance") >= 10_000_000, lit(8))
-             .when(col("latest_balance") >= 3_000_000,  lit(5))
+# TODO: 30일 rolling 전환 시 원래 임계값으로 복원: 5000만/3000만/1000만/300만
+balance_s = (when(col("latest_balance") >= 3_000_000, lit(15))
+             .when(col("latest_balance") >= 1_000_000, lit(12))
+             .when(col("latest_balance") >= 500_000,   lit(8))
+             .when(col("latest_balance") >= 100_000,   lit(5))
              .otherwise(lit(2)))
 df = df.withColumn("balance_score", balance_s.cast("double"))
 
@@ -69,18 +70,21 @@ df = df.withColumn("financial_score",
 
 # ── health_sub_score (max 25) ─────────────────────────────────────────────────
 # steps_score (max 10): avg_steps 구간별 점수
-steps_s = (when(col("avg_steps") >= 12000, lit(10))
-           .when(col("avg_steps") >= 10000, lit(8))
-           .when(col("avg_steps") >= 7000,  lit(6))
-           .when(col("avg_steps") >= 5000,  lit(3))
+# TODO: 30일 rolling 전환 시 원래 임계값으로 복원: 12000/10000/7000/5000
+steps_s = (when(col("avg_steps") >= 8000, lit(10))
+           .when(col("avg_steps") >= 5000, lit(8))
+           .when(col("avg_steps") >= 3000, lit(6))
+           .when(col("avg_steps") >= 1000, lit(3))
            .otherwise(lit(1)))
 df = df.withColumn("steps_score", steps_s.cast("double"))
 
 # wellness_score (max 10): healthcare.health_score (0~100) → 구간별 점수
-wellness_s = (when(col("health_score") >= 90, lit(10))
-              .when(col("health_score") >= 80, lit(8))
-              .when(col("health_score") >= 70, lit(6))
-              .when(col("health_score") >= 60, lit(3))
+# TODO: 30일 rolling 전환 시 원래 임계값으로 복원: 90/80/70/60
+# health_score 기본값 50.0 기준 조정 — 50 → 6점, 35 → 3점
+wellness_s = (when(col("health_score") >= 70, lit(10))
+              .when(col("health_score") >= 55, lit(8))
+              .when(col("health_score") >= 45, lit(6))
+              .when(col("health_score") >= 35, lit(3))
               .otherwise(lit(1)))
 df = df.withColumn("wellness_score", wellness_s.cast("double"))
 
