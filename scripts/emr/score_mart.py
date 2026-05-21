@@ -156,11 +156,14 @@ df = df.withColumn("financial_risk", lit(0.0))
 df = df.withColumn("risk_score",
     least(lit(20.0), col("health_risk") + col("financial_risk")))
 
-# ── lifesync_score (base 없이 합산, 설계 문서 기준) ───────────────────────────
-# = financial + health + relationship + growth - risk  (max 100, min 0)
+# ── lifesync_score ────────────────────────────────────────────────────────────
+# TODO: 30일 rolling + 실제 누적 데이터 전환 시 BASE_SCORE 제거 및 임계값 원복
+# 현재: 일별 더미 데이터 보정용 기본 점수 40점 추가 (floor ~52점 보장)
+BASE_SCORE = 40.0
 df = df.withColumn(
     "raw_score",
-    col("financial_score")
+    lit(BASE_SCORE)
+    + col("financial_score")
     + col("health_sub_score")
     + col("relationship_score")
     + col("growth_score")
