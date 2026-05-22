@@ -1,15 +1,17 @@
-name: Lambda CI/CD
+name: Data Pipeline CI/CD
 
 on:
   push:
     branches: [main]
     paths:
-      - "scripts/lambda/**"
-      - ".github/workflows/lambda_cicd.yml"
+      - "scripts/glue/**"
+      - "scripts/emr/**"
+      - "buildspec.yml"
+      - ".github/workflows/data_cicd.yml"
 
 jobs:
   unit-test:
-    name: Unit Test
+    name: Unit Test (PySpark)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,12 +20,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install test dependencies
-        run: pip install -r scripts/lambda/requirements-dev.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
 
-      - name: Run tests
-        working-directory: scripts/lambda
-        run: pytest tests/ -v
+      - name: Install PySpark
+        run: pip install pytest pyspark==3.5.0
+
+      - name: Run Glue tests
+        run: pytest scripts/glue/tests/ -v
+
+      - name: Run EMR tests
+        run: pytest scripts/emr/tests/ -v
 
   docker-build-test:
     name: Docker Build Test
@@ -31,15 +40,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Lambda runtime image
-        run: |
-          docker build -t lifesync-identity-enricher-ci -f - . <<'DOCKERFILE'
-          FROM public.ecr.aws/lambda/python:3.11
-          WORKDIR /var/task
-          COPY scripts/lambda/lifesync_identity_enricher.py .
-          COPY scripts/lambda/tests ./tests
-          RUN python -m py_compile lifesync_identity_enricher.py
-          DOCKERFILE
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile Glue and EMR scripts
+        run: python -m compileall -q scripts/glue scripts/emr
 
   security-scan:
     name: Security Scan
@@ -63,10 +69,10 @@ jobs:
       - name: Bandit
         run: |
           pip install bandit
-          bandit -r scripts/lambda/ -ll --exclude scripts/lambda/build,scripts/lambda/tests
+          bandit -r scripts/glue/ scripts/emr/ -ll
 
   deploy:
-    name: Mirror to CodeCommit
+    name: Deploy to CodeCommit
     needs: [unit-test, docker-build-test, security-scan]
     runs-on: ubuntu-latest
     steps:
@@ -85,5 +91,5 @@ jobs:
         run: |
           git config --global credential.helper '!aws codecommit credential-helper $@'
           git config --global credential.UseHttpPath true
-          git remote add codecommit https://git-codecommit.ap-northeast-2.amazonaws.com/v1/repos/lifesync-data-lambda
+          git remote add codecommit https://git-codecommit.ap-northeast-2.amazonaws.com/v1/repos/lifesync-data-prod
           git push codecommit HEAD:main --force
