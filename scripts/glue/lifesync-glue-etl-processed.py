@@ -217,24 +217,19 @@ for SOURCE in SUBSIDIARIES:
             F.col("payload.spo2_pct").alias("spo2_pct"),
         )
 
-    # 빈 DynamicFrame 처리 — S3 경로에 데이터 없거나 스키마 추론 실패 시 스킵
+    # 빈 DynamicFrame 처리 — S3 경로에 데이터 없거나 스키마 추론 실패 시 명시적 실패
     if not raw_df.columns:
-        print(f"[{SOURCE}] WARNING: 스키마 추론 실패 (빈 경로 또는 데이터 없음) — 스킵")
-        s3_client.put_object(
-            Bucket=PROC_BUCKET,
-            Key=f"_markers/{date_str}/{SOURCE}.done",
-            Body=b"done",
+        raise RuntimeError(
+            f"[{SOURCE}] S3 경로에 데이터 없음 또는 스키마 추론 실패: "
+            f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/ — "
+            "Raw 데이터 생성 여부 및 경로/날짜 형식을 확인하세요."
         )
-        continue
 
     if "global_id" not in raw_df.columns:
-        print(f"[{SOURCE}] WARNING: global_id 컬럼 없음. 실제 컬럼: {raw_df.columns} — 스킵")
-        s3_client.put_object(
-            Bucket=PROC_BUCKET,
-            Key=f"_markers/{date_str}/{SOURCE}.done",
-            Body=b"done",
+        raise RuntimeError(
+            f"[{SOURCE}] global_id 컬럼 없음. 실제 컬럼: {raw_df.columns} — "
+            "S3 파일 포맷이 예상과 다릅니다. records 래핑 구조 또는 wearable payload 구조를 확인하세요."
         )
-        continue
 
     # 2. 동의 고객 필터링
     filtered_df = raw_df.join(consent_ids, on="global_id", how="inner")
