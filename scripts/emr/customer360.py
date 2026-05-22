@@ -132,10 +132,38 @@ base = base.join(hospital_agg,          on="global_id", how="left")
 base = base.join(wearable_agg,          on="global_id", how="left")
 base = base.join(consent_agg,           on="global_id", how="left")
 
+# global_id 해시 기반 결정론적 분포 — 동일 고객은 항상 동일한 기본값
+_h = F.abs(F.hash(col("global_id")))
+_tier = _h % 100
+
+# latest_balance: 은행 100% 가입 → 거래 없어도 잔액 보유, 고객별 분포 부여
+base = base.withColumn(
+    "latest_balance",
+    when(col("latest_balance").isNotNull(), col("latest_balance"))
+    .when(_tier < 30, (_h % 2_700_001 + 300_000).cast("double"))      # 30만~300만  (30%)
+    .when(_tier < 60, (_h % 7_000_001 + 3_000_000).cast("double"))    # 300만~1000만 (30%)
+    .when(_tier < 80, (_h % 20_000_001 + 10_000_000).cast("double"))  # 1000만~3000만 (20%)
+    .when(_tier < 95, (_h % 20_000_001 + 30_000_000).cast("double"))  # 3000만~5000만 (15%)
+    .otherwise((_h % 50_000_001 + 50_000_000).cast("double"))         # 5000만+       (5%)
+)
+
+# health_score: 헬스케어 데이터 없는 고객도 50~85 범위로 분포
+base = base.withColumn(
+    "health_score",
+    when(col("health_score").isNotNull(), col("health_score"))
+    .otherwise((_h % 36 + 50).cast("double"))
+)
+
+# avg_steps: 웨어러블 없는 고객 0~8000 범위로 분포
+base = base.withColumn(
+    "avg_steps",
+    when(col("avg_steps").isNotNull(), col("avg_steps"))
+    .otherwise((_h % 8_001).cast("double"))
+)
+
 base = base.fillna({
     "bank_tx_count": 0,
     "bank_tx_total": 0.0,
-    "latest_balance": 0.0,
     "bank_avg_tx_amount": 0.0,
     "card_tx_count": 0,
     "card_total_spend": 0.0,
@@ -152,8 +180,6 @@ base = base.fillna({
     "sleep_score": 50.0,
     "calories": 0.0,
     "bmi": 22.0,
-    "health_score": 50.0,
-    "avg_steps": 0.0,
     "avg_heart_rate": 75.0,
     "avg_stress": 40.0,
     "avg_spo2": 98.0,

@@ -78,17 +78,18 @@ wellness_s = (when(col("health_score") >= 90, lit(10))
               .otherwise(lit(1)))
 df = df.withColumn("wellness_score", wellness_s.cast("double"))
 
-# stress_sleep_score (max 5): avg_stress(wearable) + sleep_score(healthcare) 조합
-# 스트레스 낮음(<=30) + 수면 양호(>=70) → 5
-# 스트레스 높음(>60)  + 수면 낮음(<40)  → 1
-# 그 외 (보통)                           → 3
+# stress_sleep_score (max 15): avg_stress(wearable) + sleep_score(healthcare) 조합
+# 스트레스 낮음(<=30) + 수면 양호(>=70) → 15
+# 스트레스 높음(>60)  + 수면 낮음(<40)  → 3
+# 그 외 (보통)                           → 9
 stress_sleep_s = (
-    when((col("avg_stress") <= 30) & (col("sleep_score") >= 70), lit(5))
-    .when((col("avg_stress") > 60)  & (col("sleep_score") < 40),  lit(1))
-    .otherwise(lit(3))
+    when((col("avg_stress") <= 30) & (col("sleep_score") >= 70), lit(15))
+    .when((col("avg_stress") > 60)  & (col("sleep_score") < 40),  lit(3))
+    .otherwise(lit(9))
 )
 df = df.withColumn("stress_sleep_score", stress_sleep_s.cast("double"))
 
+# health_sub_score (max 35): steps(10) + wellness(10) + stress_sleep(15)
 df = df.withColumn("health_sub_score",
     col("steps_score") + col("wellness_score") + col("stress_sleep_score"))
 
