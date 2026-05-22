@@ -205,6 +205,7 @@ for SOURCE in SUBSIDIARIES:
         connection_type="s3",
         connection_options=_raw_conn_opts,
         format="json",
+        format_options={"multiline": True},
         transformation_ctx=f"{SOURCE}_raw_src",
     ).toDF()
 
