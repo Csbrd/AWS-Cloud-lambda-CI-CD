@@ -29,7 +29,7 @@ spark.sparkContext.setLogLevel("WARN")
 print(f"[customer360] Starting job for BATCH_DATE={BATCH_DATE}, date_formatted={date_formatted}")
 
 def read_processed(subsidiary):
-    path = f"s3://{S3_PROCESSED_BUCKET}/{subsidiary}/dt={date_formatted}/"
+    path = f"s3://{S3_PROCESSED_BUCKET}/{subsidiary}/"
     print(f"[customer360] Reading {subsidiary} from {path}")
     return spark.read.parquet(path)
 
