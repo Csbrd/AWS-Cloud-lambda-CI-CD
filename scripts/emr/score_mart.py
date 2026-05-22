@@ -35,33 +35,26 @@ print("[score_mart] Calculating LifeSync Score components (설계 문서 기준)
 
 # ── financial_score (max 40) ───────────────────────────────────────────────────
 # 1) balance_score (max 15)
-# TODO: 30일 rolling 전환 시 원래 임계값으로 복원: 5000만/3000만/1000만/300만
-balance_s = (when(col("latest_balance") >= 3_000_000, lit(15))
-             .when(col("latest_balance") >= 1_000_000, lit(12))
-             .when(col("latest_balance") >= 500_000,   lit(8))
-             .when(col("latest_balance") >= 100_000,   lit(5))
+balance_s = (when(col("latest_balance") >= 50_000_000, lit(15))
+             .when(col("latest_balance") >= 30_000_000, lit(12))
+             .when(col("latest_balance") >= 10_000_000, lit(8))
+             .when(col("latest_balance") >= 3_000_000,  lit(5))
              .otherwise(lit(2)))
 df = df.withColumn("balance_score", balance_s.cast("double"))
 
 # 2) card_score (max 10)
-# TODO: customer360가 30일 rolling 집계로 전환되면 원래 임계값으로 복원
-# 원래: 500만/300만/150만/50만
-# 현재: 일별 데이터 규모 기준 (÷30 수준)
-card_s = (when(col("card_total_spend") >= 200_000, lit(10))
-          .when(col("card_total_spend") >= 100_000,  lit(8))
-          .when(col("card_total_spend") >= 50_000,   lit(5))
-          .when(col("card_total_spend") >= 20_000,   lit(3))
+card_s = (when(col("card_total_spend") >= 5_000_000, lit(10))
+          .when(col("card_total_spend") >= 3_000_000, lit(8))
+          .when(col("card_total_spend") >= 1_500_000, lit(5))
+          .when(col("card_total_spend") >= 500_000,   lit(3))
           .otherwise(lit(1)))
 df = df.withColumn("card_score", card_s.cast("double"))
 
 # 3) invest_score (max 15)
-# TODO: customer360가 30일 rolling 집계로 전환되면 원래 임계값으로 복원
-# 원래: 1억/5000만/3000만/1000만
-# 현재: 일별 거래액 기준
-invest_s = (when(col("invest_total") >= 3_000_000, lit(15))
-            .when(col("invest_total") >= 1_000_000,  lit(12))
-            .when(col("invest_total") >= 500_000,    lit(8))
-            .when(col("invest_total") >= 100_000,    lit(5))
+invest_s = (when(col("invest_total") >= 100_000_000, lit(15))
+            .when(col("invest_total") >= 50_000_000,  lit(12))
+            .when(col("invest_total") >= 30_000_000,  lit(8))
+            .when(col("invest_total") >= 10_000_000,  lit(5))
             .otherwise(lit(1)))
 df = df.withColumn("invest_score", invest_s.cast("double"))
 
@@ -70,21 +63,18 @@ df = df.withColumn("financial_score",
 
 # ── health_sub_score (max 25) ─────────────────────────────────────────────────
 # steps_score (max 10): avg_steps 구간별 점수
-# TODO: 30일 rolling 전환 시 원래 임계값으로 복원: 12000/10000/7000/5000
-steps_s = (when(col("avg_steps") >= 8000, lit(10))
-           .when(col("avg_steps") >= 5000, lit(8))
-           .when(col("avg_steps") >= 3000, lit(6))
-           .when(col("avg_steps") >= 1000, lit(3))
+steps_s = (when(col("avg_steps") >= 12000, lit(10))
+           .when(col("avg_steps") >= 10000, lit(8))
+           .when(col("avg_steps") >= 7000,  lit(6))
+           .when(col("avg_steps") >= 5000,  lit(3))
            .otherwise(lit(1)))
 df = df.withColumn("steps_score", steps_s.cast("double"))
 
 # wellness_score (max 10): healthcare.health_score (0~100) → 구간별 점수
-# TODO: 30일 rolling 전환 시 원래 임계값으로 복원: 90/80/70/60
-# health_score 기본값 50.0 기준 조정 — 50 → 6점, 35 → 3점
-wellness_s = (when(col("health_score") >= 70, lit(10))
-              .when(col("health_score") >= 55, lit(8))
-              .when(col("health_score") >= 45, lit(6))
-              .when(col("health_score") >= 35, lit(3))
+wellness_s = (when(col("health_score") >= 90, lit(10))
+              .when(col("health_score") >= 80, lit(8))
+              .when(col("health_score") >= 70, lit(6))
+              .when(col("health_score") >= 60, lit(3))
               .otherwise(lit(1)))
 df = df.withColumn("wellness_score", wellness_s.cast("double"))
 
@@ -130,16 +120,21 @@ df = df.withColumn("relationship_score",
     col("affiliate_score") + col("consent_score"))
 
 # ── growth_score (max 10) ─────────────────────────────────────────────────────
-# 최근 3개월 증가 추세 proxy: 투자/건강/소비 보유 여부로 추정
-# 실 파이프라인에서는 90d 증가율(invest_growth_90d, spend_growth_90d 등) 사용
+# 자산/소비/건강 규모 임계값 기반 proxy — 단순 존재 여부가 아닌 규모로 "증가 추세" 판단
+# 자산 증가 + 건강 개선 proxy: financial_score 상위 + health 양호
+# 소비 증가 + 투자 증가 proxy: 카드 150만+ AND 투자 1천만+
+# 단일 증가 proxy: 둘 중 하나만 해당
 df = df.withColumn(
     "growth_score",
     when(
-        (col("invest_total") > 0) & (col("health_score") >= 70), lit(10.0)
+        (col("financial_score") >= 30) & (col("health_sub_score") >= 18),
+        lit(10.0)
     ).when(
-        (col("card_total_spend") > 0) & (col("invest_total") > 0), lit(7.0)
+        (col("card_total_spend") >= 1_500_000) & (col("invest_total") >= 10_000_000),
+        lit(7.0)
     ).when(
-        (col("invest_total") > 0) | (col("card_total_spend") > 0), lit(4.0)
+        (col("invest_total") >= 5_000_000) | (col("card_total_spend") >= 500_000),
+        lit(4.0)
     ).otherwise(lit(1.0))
 )
 
@@ -157,13 +152,9 @@ df = df.withColumn("risk_score",
     least(lit(20.0), col("health_risk") + col("financial_risk")))
 
 # ── lifesync_score ────────────────────────────────────────────────────────────
-# TODO: 30일 rolling + 실제 누적 데이터 전환 시 BASE_SCORE 제거 및 임계값 원복
-# 현재: 일별 더미 데이터 보정용 기본 점수 40점 추가 (floor ~52점 보장)
-BASE_SCORE = 40.0
 df = df.withColumn(
     "raw_score",
-    lit(BASE_SCORE)
-    + col("financial_score")
+    col("financial_score")
     + col("health_sub_score")
     + col("relationship_score")
     + col("growth_score")
