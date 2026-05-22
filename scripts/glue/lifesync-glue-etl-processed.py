@@ -233,7 +233,19 @@ for SOURCE in SUBSIDIARIES:
     selected_df = normalized_df.select(cfg["keep_cols"])
 
     # 5. 중복 제거
-    deduped_df = selected_df.dropDuplicates(cfg["pk_cols"])
+    if SOURCE == "wearable":
+        # 같은 날 여러 이벤트 → 일별 합산(steps) / 평균(나머지)
+        deduped_df = selected_df.groupBy("global_id", "record_date").agg(
+            F.sum("steps").cast(LongType()).alias("steps"),
+            F.avg("heart_rate").cast(LongType()).alias("heart_rate"),
+            F.avg("stress_score").cast(LongType()).alias("stress_score"),
+            F.avg("spo2_pct").cast(LongType()).alias("spo2_pct"),
+        )
+    elif SOURCE in ("bank", "card", "securities"):
+        # 같은 날 복수 거래는 정상 데이터 — 완전 동일 행만 제거
+        deduped_df = selected_df.dropDuplicates()
+    else:
+        deduped_df = selected_df.dropDuplicates(cfg["pk_cols"])
 
     # 6. S3 Processed Parquet 저장 (Snappy 압축, dt= 파티션)
     deduped_df = deduped_df.withColumn("dt", F.lit(date_str))
