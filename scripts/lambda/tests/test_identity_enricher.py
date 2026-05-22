@@ -120,9 +120,10 @@ class TestLoadConsentData:
 
         assert id_map == {"LS000000001": "G000000001"}
 
-        obj = aws_env.get_object(Bucket=BUCKET, Key="consent/dt=2026-05-14/consent.jsonl")
+        obj = aws_env.get_object(Bucket=BUCKET, Key="consent/consent.jsonl")
         records = [json.loads(line) for line in obj["Body"].read().decode("utf-8").splitlines()]
         assert records[0]["global_id"] == "G000000001"
+        assert records[0]["ls_user_id"] == "LS000000001"
         assert records[0]["domain"] == "BANK"
 
     @patch("lifesync_identity_enricher._api_call_raw")
@@ -134,7 +135,7 @@ class TestLoadConsentData:
         id_map = _load_consent_data(aws_env, "2026-05-14")
 
         assert id_map == {}
-        obj = aws_env.get_object(Bucket=BUCKET, Key="consent/dt=2026-05-14/consent.jsonl")
+        obj = aws_env.get_object(Bucket=BUCKET, Key="consent/consent.jsonl")
         assert obj["Body"].read() == b""
 
 
