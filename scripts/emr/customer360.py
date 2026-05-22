@@ -105,7 +105,7 @@ base_ids = (
 )
 
 print("[customer360] Aggregating consent data")
-consent_df = spark.read.json(f"s3://{S3_RAW_BUCKET}/consent/dt={date_formatted}/")
+consent_df = spark.read.json(f"s3://{S3_RAW_BUCKET}/consent/")
 consent_agg = consent_df.groupBy("global_id").agg(
     (F.sum(when(col("consent_flag") == "Y", lit(1)).otherwise(lit(0))).cast("double")
      / F.count("*")).alias("consent_ratio")

@@ -174,7 +174,7 @@ _consent_schema = StructType([
 ])
 consent_ids = (
     spark.read.schema(_consent_schema)
-         .json(f"s3://{RAW_BUCKET}/consent/dt={date_str}/")
+         .json(f"s3://{RAW_BUCKET}/consent/")
          .filter(
              (F.col("consent_flag") == "Y") &
              (F.col("revoke_dt").isNull() | (F.col("revoke_dt") == "None"))
