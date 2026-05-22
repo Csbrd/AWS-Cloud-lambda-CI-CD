@@ -196,18 +196,12 @@ for SOURCE in SUBSIDIARIES:
     cfg = CONFIGS[SOURCE]
     print(f"[{SOURCE}] 처리 시작")
 
-    # 1. S3 Raw JSON 읽기
-    _raw_conn_opts = {"paths": [f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"]}
+    # 1. S3 Raw JSON 읽기 (단일 라인 대용량 JSON 지원을 위해 spark.read 직접 사용)
+    _s3_path = f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"
+    _reader = spark.read.option("multiLine", True)
     if SOURCE == "wearable":
-        _raw_conn_opts["recurse"] = True
-
-    raw_df = glueContext.create_dynamic_frame.from_options(
-        connection_type="s3",
-        connection_options=_raw_conn_opts,
-        format="json",
-        format_options={"multiline": True},
-        transformation_ctx=f"{SOURCE}_raw_src",
-    ).toDF()
+        _reader = _reader.option("recursiveFileLookup", True)
+    raw_df = _reader.json(_s3_path)
 
     # 래핑된 JSON 포맷 처리 {"source":..., "records": [...]}
     if "records" in raw_df.columns:
