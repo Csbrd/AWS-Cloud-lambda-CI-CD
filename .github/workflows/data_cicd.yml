@@ -1,0 +1,95 @@
+name: Data Pipeline CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/glue/**"
+      - "scripts/emr/**"
+      - "buildspec.yml"
+      - ".github/workflows/data_cicd.yml"
+
+jobs:
+  unit-test:
+    name: Unit Test (PySpark)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
+      - name: Install PySpark
+        run: pip install pytest pyspark==3.5.0
+
+      - name: Run Glue tests
+        run: pytest scripts/glue/tests/ -v
+
+      - name: Run EMR tests
+        run: pytest scripts/emr/tests/ -v
+
+  docker-build-test:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile Glue and EMR scripts
+        run: python -m compileall -q scripts/glue scripts/emr
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . --no-git --redact -v --exit-code=2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Bandit
+        run: |
+          pip install bandit
+          bandit -r scripts/glue/ scripts/emr/ -ll
+
+  deploy:
+    name: Deploy to CodeCommit
+    needs: [unit-test, docker-build-test, security-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Mirror to CodeCommit
+        run: |
+          git config --global credential.helper '!aws codecommit credential-helper $@'
+          git config --global credential.UseHttpPath true
+          git remote add codecommit https://git-codecommit.ap-northeast-2.amazonaws.com/v1/repos/lifesync-data-prod
+          git push codecommit HEAD:main --force
