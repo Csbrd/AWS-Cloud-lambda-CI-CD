@@ -146,10 +146,6 @@ spark       = glueContext.spark_session
 job         = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
-# 대용량 단일 라인 JSON 처리 (Initial-Data 등 전체 레코드가 한 줄인 파일)
-sc._jsc.hadoopConfiguration().set(
-    "mapreduce.input.fileinputformat.split.maxsize", str(512 * 1024 * 1024)  # 512MB
-)
 
 def _optional_arg(name, default=None):
     flag = f"--{name}"
@@ -196,12 +192,19 @@ for SOURCE in SUBSIDIARIES:
     cfg = CONFIGS[SOURCE]
     print(f"[{SOURCE}] 처리 시작")
 
-    # 1. S3 Raw JSON 읽기 (단일 라인 대용량 JSON 지원을 위해 spark.read 직접 사용)
+    # 1. S3 Raw JSON 읽기 (Job Bookmark 활성화)
     _s3_path = f"s3://{RAW_BUCKET}/{SOURCE}/dt={date_str}/"
-    _reader = spark.read.option("multiLine", True)
-    if SOURCE == "wearable":
-        _reader = _reader.option("recursiveFileLookup", True)
-    raw_df = _reader.json(_s3_path)
+    dyf = glueContext.create_dynamic_frame.from_options(
+        connection_type="s3",
+        format="json",
+        format_options={"multiline": False},
+        connection_options={
+            "paths": [_s3_path],
+            "recurse": True,
+        },
+        transformation_ctx=f"read_{SOURCE}",
+    )
+    raw_df = dyf.toDF()
 
     # 래핑된 JSON 포맷 처리 {"source":..., "records": [...]}
     if "records" in raw_df.columns:
